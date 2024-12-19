@@ -1,57 +1,85 @@
-import express from 'express'
-import csurf from 'csurf'
-import cookieParser from 'cookie-parser'
-import usuarioRoutes from './routes/usuarioRoutes.js'
-import propiedadesRoutes from './routes/propiedadesRoutes.js'
-import appRoutes from './routes/appRoutes.js'
-import apiRoutes from './routes/apiRoutes.js'
-import db from './config/db.js'
+import express from 'express';
+import csurf from 'csurf';
+import cookieParser from 'cookie-parser';
+import usuarioRoutes from './routes/usuarioRoutes.js';
+import propiedadesRoutes from './routes/propiedadesRoutes.js';
+import appRoutes from './routes/appRoutes.js';
+import apiRoutes from './routes/apiRoutes.js';
+import db from './config/db.js';
+import bodyParser from 'body-parser';
+import upload from './middleware/subirImagen.js';  // Importar el middleware de multer
 
-//crear la app
-const app = express()
+// Crear la app
+const app = express();
 
-//habilitar lectura de datos de formularios
+// Habilitar lectura de datos de formularios
+app.use(express.urlencoded({ extended: true }));
 
-app.use(express.urlencoded({ extend: true }))
+// Habilitar cookie Parser
+app.use(cookieParser());
 
-//Habilitar cookie Parser
-app.use(cookieParser())
+// Habilitar CSRF
+app.use(csurf({ cookie: true }));
 
-//habilitar csurf
-app.use(csurf({ cookie: true }))
-
-//conexion a la bd
+// Conexión a la base de datos
 try {
     await db.authenticate();
-    db.sync()
-    console.log('Conexion a la bd exitosa!!!')
+    await db.sync();  // Sincronizar las tablas
+    console.log('Conexión a la base de datos exitosa!!!');
 } catch (error) {
-    console.log(error)
+    console.log('Error al conectar con la base de datos:', error);
 }
 
+// Habilitar Pug como motor de plantillas
+app.set('view engine', 'pug');
+app.set('views', './views');
 
-//habilitar pug
-app.set('view engine', 'pug')
-app.set('views', './views')
+// Carpeta pública para servir archivos estáticos (como imágenes)
+app.use(express.static('public'));
 
-//Carpeta publica
-app.use(express.static('public'))
+// Rutas de la aplicación
+app.use('/', appRoutes);
+app.use('/auth', usuarioRoutes);
+app.use('/', propiedadesRoutes);
+app.use('/api', apiRoutes);
 
+// Ruta para manejar la subida de imágenes de múltiples archivos
+app.post('/propiedades/agregar-imagen/:id', upload.array('imagen', 3), async (req, res) => {
+    // Verificar si se subieron archivos
+    if (req.files && req.files.length > 0) {
+        console.log('Archivos subidos:', req.files);
 
-//roting
-app.use('/', appRoutes)
-app.use('/auth', usuarioRoutes)
-app.use('/', propiedadesRoutes)
-app.use('/api', apiRoutes)
+        try {
+            // Obtener el ID de la propiedad donde se agregarán las imágenes
+            const propiedadID = req.params.id;
 
+            // Obtener las rutas de las imágenes subidas
+            const imagenesSubidas = req.files.map(file => file.filename);  // Solo los nombres de los archivos
 
+            console.log('Imágenes a guardar en la base de datos:', imagenesSubidas);
 
+            // Insertar cada imagen en la tabla 'imagenes'
+            for (let imagen of imagenesSubidas) {
+                await db.query(
+                    'INSERT INTO imagenes (propiedad_id, imagen) VALUES (?, ?)',
+                    [propiedadID, imagen]
+                );
+            }
 
+            console.log('Imágenes guardadas en la tabla imagenes');
+            res.redirect(`/propiedades/editar/${propiedadID}`);
+        } catch (error) {
+            console.log('Error al guardar en la base de datos:', error);
+            res.status(500).send('Error al guardar las imágenes');
+        }
+    } else {
+        console.log('No se han subido imágenes');
+        res.status(400).send('No se han subido imágenes');
+    }
+});
 
-
-
-//definir un puerto y arrancar el proyecto
+// Definir un puerto y arrancar el proyecto
 const port = 3001;
 app.listen(port, () => {
-    console.log(`El servidor esta funcionando en el puerto ${port}`)
+    console.log(`El servidor está funcionando en el puerto ${port}`);
 });
